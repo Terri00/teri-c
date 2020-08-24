@@ -52,13 +52,18 @@ class tc_uint64( tc_type ): c_name: "uint64_t"
 def c_header( root, written = [], header_lines = [], isRoot = True ):
 	storage = []
 
+	# iterate <name>: value() defines on class
 	if hasattr( root, "__annotations__" ):
 		for _, value in root.__annotations__.items():
 			
+			# Derived from class or array->class
 			basetype = None
 			
 			if tc_arr == type(value):
 				basetype = value.type
+				
+				# Fixed sized buffers get added to the structure definition
+				# Variable size are stored somewhere else
 				
 				if value.fixed:
 					storage.append( basetype.getname() + " " + _ + "[" + str(len(value.values)) + "];" )
@@ -66,8 +71,7 @@ def c_header( root, written = [], header_lines = [], isRoot = True ):
 					storage.append( basetype.getname() + " *" + _ + ";" )
 					storage.append( "uint32_t num" + _ + ";" )
 			else:
-				basetype = type(value)
-				
+				basetype = type(value)	
 				storage.append( basetype.getname() + " " + _ + ";" )
 				
 			# Create definitions for other structures too, if we need them
@@ -78,15 +82,16 @@ def c_header( root, written = [], header_lines = [], isRoot = True ):
 				
 			storage.append( "" )
 				
+	# Write this structure
 	header_lines.append( "typedef struct" )
 	header_lines.append( "{" )
 	header_lines += [ "  " + x for x in storage ]
 	header_lines.append( "} " + root.__name__ + ";" )
 	header_lines.append( "" )
 	
+	# For reading this structure out of bytes
 	if isRoot:
 		header_lines.append( "void " + root.getname() + "_fix(char *arr)" )
-		
 	
 	return '\n'.join( header_lines )
 
