@@ -18,6 +18,8 @@ class tc_struct( tc_virtual_type ):
 			for _, value in this.__annotations__.items():
 				if type(value) == tc_arr:
 					setattr( this, _, tc_arr( value.type, len(value.values), value.default, value.string ))
+				elif tc_struct in type(value).__bases__:
+					setattr( this, _, type(value)() )
 				else:
 					setattr( this, _, type(value)(value.value) )
 		
@@ -191,7 +193,7 @@ def c_header( classes ):
 			
 			for prop in init:
 				if len(prop) == 1:
-					_c_header.header_lines.append( "\tself->" + prop[0] + " = (char *)" + "self->" + prop[0] + " + _self;" )
+					_c_header.header_lines.append( "\tself->" + prop[0] + " = _self + (uint32_t)self->" + prop[0] + ";" )
 				elif len(prop) == 2:
 					_c_header.header_lines.append( "\t" + prop[1] + "_init( &self->" + prop[0] + " );" )
 				else:
@@ -282,7 +284,10 @@ def serialize( _root ):
 						s_rec.allocations.append( (len(s_rec.bytes), value) )
 						s_rec.bytes += struct.pack( "<II", 0xFFCCFFCC, len(value.values) )
 				else:
-					s_rec.bytes += value.packed()
+					if tc_type in type(value).__bases__:
+						s_rec.bytes += value.packed()
+					else:
+						s_rec( value, lvl + 1, False )
 		
 		if allocHere:
 			for d in s_rec.allocations:
