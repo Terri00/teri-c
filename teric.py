@@ -272,24 +272,3 @@ def tcHeader( cls, defs = [] ):
 	lines = cls.define([], defs)
 	
 	return [("typedef struct "+d.typedef()+" "+d.typedef()+";") for d in defs] + ["\n"] + lines
-
-
-# ~~ USER ~~
-
-class v3layer( tcStruct ):
-	typedef:		"v3layer_t"	
-	name:			tcArray( tcChar(0), 16, fromstr="[none]" )
-
-class v3model( tcStruct ):
-	typedef:		"v3model_t"
-
-	version:		tcInt32( 3 )
-	name:			tcBuffer( tcChar, fromstr="" )
-
-	layers:		tcBuffer( v3layer )
-
-test = v3model()
-test.layers.push( v3layer() )
-
-print( '\n'.join(tcHeader(v3model)) )
-print( tcBytes(test).hex() )
