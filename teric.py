@@ -1,5 +1,9 @@
 import struct
 
+post_write_list = []	# Objects in this list evaluates post_write once everything is written in a byteswrite
+alloc_when_list = [] # Objects in this will have their memory allocated when outside of arrays
+defined_cl_list = [] # Classes currently defined while writing headers (to prevent inf-loop / multiples)
+
 #
 # Classes that inherit from tcVirtualName will have the typedef() of:
 #  - the name of the derived class if no override is set
@@ -30,7 +34,7 @@ class tcAtomClass( tcVirtualName ):
 	def duplicate( this ):
 		return this.__class__( this.value )
 
-	def serialize( this, bytes=b'', allocate = [] ):
+	def serialize( this, bytes=b'' ):
 		bytes += struct.pack( this.__class__.__annotations__[ "fmt" ], this.value )
 		return bytes
 
@@ -51,6 +55,9 @@ class tcUInt64( tcAtomClass ): fmt: "<L"; typedef: "uint64_t"
 # Characters (uint8_t)
 class tcChar( tcAtomClass ): fmt: "<B"; typedef: "char"
 
+#
+# Main structure type baseclass
+#
 class tcStruct( tcVirtualName ):
 	@classmethod
 	def declarations( cls ):
@@ -59,24 +66,29 @@ class tcStruct( tcVirtualName ):
 		return []
 	
 	@classmethod
-	def define( cls, lines = [], defined = [] ):
-		defined.append( cls )
-		lines.append( "struct " + cls.typedef() + "{" )
-		
-		getters = []
-		
-		for k, v in cls.declarations():
-			if v.__class__ not in defined and hasattr( v, "define" ):
-				lines = v.define([], defined) + lines
-		
-			lines.append( "\t" + v.declare( k ) )
-			
-		lines.append( "};" )
-		lines.append( "" )
+	def define( cls, lines = [] ):
+		global defined_cl_list
+	
+		definethis = True if cls not in defined_cl_list else False
+	
+		if definethis:
+			defined_cl_list.append( cls )
+			lines.append( "struct " + cls.typedef() + "{" )
 		
 		for k, v in cls.declarations():
-			if hasattr( v, "accessors" ):
-				lines += v.accessors( cls, k )
+			if hasattr( v, "define" ):
+				lines = v.define([]) + lines
+		
+			if definethis and hasattr( v, "declare" ):
+				lines.append( "\t" + v.declare( k ) )
+		
+		if definethis:
+			lines.append( "};" )
+			lines.append( "" )
+		
+			for k, v in cls.declarations():
+				if hasattr( v, "accessors" ):
+					lines += v.accessors( cls, k )
 			
 		return lines
 		
@@ -93,19 +105,21 @@ class tcStruct( tcVirtualName ):
 			setattr( ob, k, getattr( this, k ).duplicate() )
 		return ob
 
-	def serialize( this, bytes = b'', allocate = [] ):	
+	def serialize( this, bytes = b'' ):
+		strstart = len(bytes)
 		for k, v in this.__class__.declarations():
-			getattr(this, k)._base = len(bytes)
-			bytes = getattr(this, k).serialize( bytes, allocate )
+			getattr(this, k)._base = strstart
+			bytes = getattr(this, k).serialize( bytes )
 		
 		return bytes
 
 # Subtype pass-through
 class subtyped():
-	def define( this, lines = [], defined = [] ):
+	def define( this, lines = [] ):
+		global defined_cl_list
 		
-		if this.type not in defined and hasattr( this.type, "define" ):
-			lines = this.type.define([], defined) + lines
+		if this.type not in defined_cl_list and hasattr( this.type, "define" ):
+			lines = this.type.define([]) + lines
 		
 		return lines		
 
@@ -140,10 +154,10 @@ class tcArray( subtyped ):
 		ob.isstr = this.isstr
 		return ob
 		
-	def serialize( this, bytes = b'', allocate = [] ):
+	def serialize( this, bytes = b'' ):
 		for v in this.values:
 			v._base = this._base
-			bytes += v.serialize( b'', allocate )
+			bytes += v.serialize( b'' )
 		return bytes
 	
 	def declare( this, name ):
@@ -172,9 +186,10 @@ class tcArray( subtyped ):
 # Dynamically sized array (starts at 0, .push() to add items)
 #
 class tcBuffer( subtyped ):
-	def __init__( this, cls, fromstr=None ):
+	def __init__( this, cls, fromstr=None, align=1 ):
 		this.values = []
 		this.type = cls
+		this.align = align
 		
 		# If fromstr is set this object is string type
 		if fromstr != None:
@@ -188,19 +203,25 @@ class tcBuffer( subtyped ):
 		ob = tcBuffer( this.type )
 		ob.values = [ v.duplicate() for v in this.values ]
 		ob.isstr = this.isstr
+		ob.align = this.align
 		return ob
 		
-	def alloc_ready( this, bytes = b'', allocate = [] ):
+	def alloc_ready( this, bytes = b'' ):
+		if len(bytes) % this.align != 0:
+			bytes += b'\x00' * (this.align-(len(bytes) % this.align))
+	
 		offset = struct.pack( "<I", len(bytes) - this._base )
 		bytes = bytes[:this._edit] + offset + bytes[this._edit+4:]
 	
 		for v in this.values:
-			bytes = v.serialize( bytes, allocate )
+			bytes = v.serialize( bytes )
 		
 		return bytes
 	
-	def serialize( this, bytes = b'', allocate = [] ):
-		allocate.append(this)
+	def serialize( this, bytes = b'' ):
+		global alloc_when_list
+	
+		alloc_when_list.append(this)
 		this._edit = len(bytes)
 		
 		bytes += b'\xBE\xEF\xCA\xFE'
@@ -247,28 +268,95 @@ class tcBuffer( subtyped ):
 		this.values.append( tcChar(0) )
 
 #
+# Pointer type stores reference to other object
+#
+class tcPointer():
+	def __init__( this, typename ):
+		this.typename = typename
+		this.obj = None
+	
+	def setptr( this, obj ):
+		this.obj = obj
+	
+	def declare( this, name ):
+		return "int32_t off"+name+";"
+		
+	def accessors( this, struct, name ):
+		lns = []
+		sub = this.typename
+		
+		lns.append( "TC_INLINE "+sub+" *"+struct.funcref()+"_"+name+"( "+struct.typedef()+" *self ){" )
+		lns.append( "\treturn (char *)self + self->off"+name+";" )
+		lns.append( "}\n" )
+		return lns
+	
+	def serialize( this, bytes = b'' ):
+		global post_write_list
+	
+		this._edit = len(bytes)
+		bytes += b'\xEE\xEE\xEE\xEE'
+		post_write_list.append( this )
+		return bytes
+
+	def duplicate( this ):
+		ob = tcPointer( this.typename )
+		ob.obj = this.obj
+		return ob
+
+	def post_write( this, bytes=b'' ):
+		offset = struct.pack( "<i", this.obj._base - this._base ) if this.obj != None else b'\x00\x00\x00\x00'
+		bytes = bytes[:this._edit] + offset + bytes[this._edit+4:]
+		return bytes
+
+#
 # Convert python TC object into bytes
 #
-def tcBytes( obj ):
-	ac = []	
-	buf = b''
+def tcBytes( obj, to_file=None ):
+	global post_write_list
+	global alloc_when_list
 
-	buf = obj.serialize( buf, ac )
+	buf = b''
+	buf = obj.serialize( buf )
 	
-	while len(ac) > 0:
-		newreq = []
+	lcpy = [x for x in alloc_when_list]
+	alloc_when_list = []
 	
-		for i in ac:
-			buf = i.alloc_ready( buf, newreq )
+	while len(lcpy) > 0:	
+		for i in lcpy:
+			buf = i.alloc_ready( buf )
 	
-		ac = newreq
+		lcpy = [x for x in alloc_when_list]
+	
+	for post in post_write_list:			
+		buf = post.post_write(buf)
+		
+	if to_file != None:
+		o = open( to_file, "wb" )
+		o.write( buf )
+		o.close()
 		
 	return buf
 
 #
 # Generate a header from a class type
 #
-def tcHeader( cls, defs = [] ):
-	lines = cls.define([], defs)
+def tcHeader( clss, to_file=None ):
+	global defined_cl_list
 	
-	return [("typedef struct "+d.typedef()+" "+d.typedef()+";") for d in defs] + ["\n"] + lines
+	lines = []
+	
+	if type( clss ) == list:
+		for cls in clss:
+			lines = cls.define( lines )
+			
+	else:
+		lines = clss.define( lines )
+		
+	lines = ["#define TC_INLINE inline __attribute__((always_inline))",""] + [("typedef struct "+d.typedef()+" "+d.typedef()+";") for d in defined_cl_list] + ["\n"] + lines
+	
+	if to_file != None:
+		o = open( to_file , "w" )
+		o.write( '\n'.join(lines) )
+		o.close()
+		
+	return lines
