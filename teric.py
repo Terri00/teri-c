@@ -352,7 +352,11 @@ def tcHeader( clss, to_file=None ):
 	else:
 		lines = clss.define( lines )
 		
-	lines = ["#define TC_INLINE inline __attribute__((always_inline))",""] + [("typedef struct "+d.typedef()+" "+d.typedef()+";") for d in defined_cl_list] + ["\n"] + lines
+	# Start/end of file
+	prefix = ["#define TC_INLINE inline __attribute__((always_inline))","#pragma pack(push,1)"]
+	postfix = ["#pragma pack(pop)"]
+		
+	lines = prefix + [("typedef struct "+d.typedef()+" "+d.typedef()+";") for d in defined_cl_list] + ["\n"] + lines + postfix
 	
 	if to_file != None:
 		o = open( to_file , "w" )
