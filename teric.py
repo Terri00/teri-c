@@ -134,7 +134,7 @@ class subtyped():
 # Fixed buffers
 #
 class tcArray( subtyped ):
-	def __init__( this, value, *argv, fromstr=None ):
+	def __init__( this, value, *argv, fromstr=None ):	
 		if len( argv ) > 1:
 			this.values = [ tcArray( value, *argv[1:] ) for x in range(argv[0]) ]
 		else:
@@ -152,6 +152,7 @@ class tcArray( subtyped ):
 		ob = tcArray( this.type(None), 0 )
 		ob.values = [ v.duplicate() for v in this.values ]
 		ob.isstr = this.isstr
+		ob.type = this.type
 		return ob
 		
 	def serialize( this, bytes = b'' ):
@@ -162,7 +163,8 @@ class tcArray( subtyped ):
 	
 	def declare( this, name ):
 		spec = ""
-		for w in this.getwidths():
+
+		for w in this.getwidths([]):
 			spec += "[" + str(w) + "]"
 	
 		return this.type.typedef()+" "+name+spec+";"
