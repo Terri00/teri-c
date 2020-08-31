@@ -304,8 +304,11 @@ class tcPointer():
 		ob = tcPointer( this.typename )
 		ob.obj = this.obj
 		return ob
+		
+	def typedef( this ):
+		return this.typename
 
-	def post_write( this, bytes=b'' ):
+	def post_write( this, bytes=b'' ):	
 		offset = struct.pack( "<i", this.obj._base - this._base ) if this.obj != None else b'\x00\x00\x00\x00'
 		bytes = bytes[:this._edit] + offset + bytes[this._edit+4:]
 		return bytes
