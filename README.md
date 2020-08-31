@@ -58,6 +58,10 @@ for( int i = 0; i < pData->numpickles; i ++ ){
    // Do something with o ...
 }
 ```
+### Notes:
+Since python is allergic to types, unfortunately if you want to make a self referencing structure you have to assign outside of the class body to the buffer. 
+Example: Initialize it `Nodes: tcBuffer( None )`, then set for example: `Node.__annotations__["Nodes"].type = Node`
+Do this before you call anything else on that struct. 
 
 ### Builtin types:
 Teric comes with a few builtin 'atom' types to use as a surrogate for the c equivalent.
