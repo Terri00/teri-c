@@ -319,18 +319,23 @@ class tcPointer():
 def tcBytes( obj, to_file=None ):
 	global post_write_list
 	global alloc_when_list
+	
+	# reset per-run
+	post_write_list = []
+	alloc_when_list = []
 
 	buf = b''
 	buf = obj.serialize( buf )
 	
-	lcpy = [x for x in alloc_when_list]
+	lcpy = alloc_when_list[:]
 	alloc_when_list = []
 	
-	while len(lcpy) > 0:	
+	while len(lcpy) > 0:
 		for i in lcpy:
 			buf = i.alloc_ready( buf )
 	
-		lcpy = [x for x in alloc_when_list]
+		lcpy = alloc_when_list[:]
+		alloc_when_list = []
 	
 	for post in post_write_list:			
 		buf = post.post_write(buf)
@@ -347,6 +352,7 @@ def tcBytes( obj, to_file=None ):
 #
 def tcHeader( clss, to_file=None ):
 	global defined_cl_list
+	defined_cl_list = []
 	
 	lines = []
 	
