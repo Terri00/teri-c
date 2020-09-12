@@ -129,6 +129,9 @@ class subtyped():
 		
 	def __setitem__( this, idx, val ):
 		this.values[ idx ] = val
+		
+	def __len__( this ):
+		return len( this.values )
 
 #
 # Fixed buffers
