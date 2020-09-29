@@ -317,6 +317,25 @@ class tcPointer():
 		return bytes
 
 #
+# One branch of the serializer
+#
+def tcBytes_r( obj=None, bytes=b'' ):
+	global alloc_when_list
+	
+	if obj != None:
+		bytes = obj.alloc_ready( bytes )
+	
+	# Copy list and clear
+	work_to_do = alloc_when_list[:]
+	alloc_when_list = []
+	
+	# Work on child allocations
+	for sub in work_to_do:
+		bytes = tcBytes_r( sub, bytes )
+		
+	return bytes
+
+#
 # Convert python TC object into bytes
 #
 def tcBytes( obj, to_file=None ):
@@ -330,15 +349,7 @@ def tcBytes( obj, to_file=None ):
 	buf = b''
 	buf = obj.serialize( buf )
 	
-	lcpy = alloc_when_list[:]
-	alloc_when_list = []
-	
-	while len(lcpy) > 0:
-		for i in lcpy:
-			buf = i.alloc_ready( buf )
-	
-		lcpy = alloc_when_list[:]
-		alloc_when_list = []
+	buf = tcBytes_r( None, buf )
 	
 	for post in post_write_list:			
 		buf = post.post_write(buf)
@@ -361,7 +372,7 @@ def tcHeader( clss, to_file=None ):
 	
 	if type( clss ) == list:
 		for cls in clss:
-			lines = cls.define( lines )
+			lines += cls.define( [] )
 			
 	else:
 		lines = clss.define( lines )
